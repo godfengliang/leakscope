@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://leakscope.surge.sh/sitemap.xml
