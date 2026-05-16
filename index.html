@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LeakScope — What Does Your Browser Leak?</title>
+<meta name="description" content="See exactly what your browser reveals to every website you visit. Canvas fingerprint, WebGL, fonts, timezone, battery, hardware, and more. Free privacy checker.">
+<meta name="keywords" content="browser fingerprint, privacy check, canvas fingerprint, webgl fingerprint, browser leak, privacy tool">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://leakscope.surge.sh/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="LeakScope — What Does Your Browser Leak?">
+<meta property="og:description" content="See what your browser reveals to every website. Free privacy check.">
+<meta property="og:url" content="https://leakscope.surge.sh/">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"LeakScope","applicationCategory":"UtilitiesApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Free browser fingerprint and privacy checker."}</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0a0a;color:#e5e5e5;min-height:100vh}
+header{text-align:center;padding:32px 20px 16px;background:linear-gradient(180deg,#1a0a2e 0%,#0a0a0a 100%)}
+header h1{font-size:28px;font-weight:800;background:linear-gradient(135deg,#f59e0b,#ef4444);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+header p{font-size:14px;color:#888;margin-top:4px}
+.score-box{margin:24px auto;text-align:center;max-width:300px}
+.score-ring{position:relative;width:160px;height:160px;margin:0 auto 12px}
+.score-ring svg{transform:rotate(-90deg)}
+.score-ring circle{fill:none;stroke-width:10}
+.score-ring .bg{stroke:#222}
+.score-ring .fg{stroke:#22c55e;stroke-linecap:round;transition:stroke-dashoffset 1.5s ease}
+.score-val{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:42px;font-weight:800;color:#e5e5e5}
+.score-label{font-size:13px;color:#888}
+main{max-width:800px;margin:0 auto;padding:0 20px 40px}
+.cat{background:#111;border:1px solid #222;border-radius:12px;margin-bottom:16px;overflow:hidden}
+.cat-header{padding:14px 18px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;border-bottom:1px solid #1a1a1a}
+.cat-header:hover{background:#1a1a1a}
+.cat-header h2{font-size:14px;font-weight:700}
+.cat-header .badge{font-size:12px;padding:3px 10px;border-radius:20px;font-weight:600}
+.badge.safe{background:#166534;color:#22c55e}
+.badge.warn{background:#78350f;color:#fbbf24}
+.badge.danger{background:#7f1d1d;color:#f87171}
+.cat-items{padding:8px 0}
+.item{display:flex;justify-content:space-between;padding:8px 18px;font-size:13px;border-bottom:1px solid #1a1a1a}
+.item:last-child{border:none}
+.item .key{color:#888;font-weight:500}
+.item .val{color:#e5e5e5;font-weight:600;text-align:right;max-width:60%;word-break:break-all}
+.item .val.leak{color:#f87171}
+.item .val.ok{color:#22c55e}
+.share-section{text-align:center;margin:32px 0;padding:20px;background:#111;border-radius:12px;border:1px solid #222}
+.share-section h3{font-size:16px;margin-bottom:8px}
+.share-section p{font-size:13px;color:#888;margin-bottom:16px}
+.share-btn{display:inline-block;padding:10px 24px;background:#1d4ed8;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px}
+.share-btn:hover{background:#2563eb}
+.loading{text-align:center;padding:40px;color:#666;font-size:14px}
+</style>
+</head>
+<body>
+<header>
+  <h1>LeakScope</h1>
+  <p>What does your browser reveal about you?</p>
+</header>
+<div class="score-box">
+  <div class="score-ring">
+    <svg width="160" height="160"><circle class="bg" cx="80" cy="80" r="70"/><circle class="fg" id="scoreCircle" cx="80" cy="80" r="70" stroke-dasharray="440" stroke-dashoffset="440"/></svg>
+    <div class="score-val" id="scoreVal">-</div>
+  </div>
+  <div class="score-label" id="scoreLabel">Scanning...</div>
+</div>
+<main id="results"><div class="loading">Analyzing your browser...</div></main>
+<div class="share-section">
+  <h3>Share your privacy score</h3>
+  <p>See how unique your browser fingerprint is</p>
+  <a class="share-btn" id="shareBtn" href="#">Copy Score Card</a>
+</div>
+
+<script>
+(function(){
+const $ = id => document.getElementById(id);
+const results = $('results');
+
+function getCanvasFP() {
+  const c = document.createElement('canvas');
+  c.width = 200; c.height = 50;
+  const ctx = c.getContext('2d');
+  ctx.textBaseline = 'top';
+  ctx.font = '14px Arial';
+  ctx.fillStyle = '#f60';
+  ctx.fillRect(125,1,62,20);
+  ctx.fillStyle = '#069';
+  ctx.fillText('LeakScope 🔍', 2, 15);
+  ctx.fillStyle = 'rgba(102,204,0,0.7)';
+  ctx.fillText('LeakScope 🔍', 4, 17);
+  return c.toDataURL();
+}
+
+function getWebGLInfo() {
+  try {
+    const c = document.createElement('canvas');
+    const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+    if (!gl) return null;
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    return {
+      vendor: dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR),
+      renderer: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)
+    };
+  } catch(e) { return null; }
+}
+
+async function detect() {
+  const leaks = [];
+  let score = 100;
+
+  // Canvas
+  const canvasFP = getCanvasFP();
+  leaks.push({cat:'Canvas Fingerprint',items:[
+    {key:'Canvas Hash',val:canvasFP.length+' chars (fingerprintable)',leak:true},
+    {key:'Canvas Supported',val:'Yes',leak:true},
+  ]});
+
+  // WebGL
+  const gl = getWebGLInfo();
+  leaks.push({cat:'WebGL',items:[
+    {key:'GPU Vendor',val:gl?gl.vendor:'N/A',leak:!!gl},
+    {key:'GPU Renderer',val:gl?gl.renderer:'N/A',leak:!!gl},
+    {key:'WebGL Supported',val:gl?'Yes':'No',leak:!!gl},
+  ]});
+  if(gl) score -= 10;
+
+  // Screen
+  leaks.push({cat:'Screen & Display',items:[
+    {key:'Resolution',val:`${screen.width}x${screen.height}`,leak:true},
+    {key:'Available',val:`${screen.availWidth}x${screen.availHeight}`,leak:true},
+    {key:'Color Depth',val:`${screen.colorDepth}-bit`,leak:true},
+    {key:'Pixel Ratio',val:window.devicePixelRatio,leak:window.devicePixelRatio!==1},
+    {key:'Orientation',val:screen.orientation?.type||'unknown',leak:true},
+  ]});
+  score -= 15;
+
+  // Timezone
+  leaks.push({cat:'Timezone & Locale',items:[
+    {key:'Timezone',val:Intl.DateTimeFormat().resolvedOptions().timeZone,leak:true},
+    {key:'UTC Offset',val:`UTC${new Date().getTimezoneOffset()>0?'-':'+'}${Math.abs(new Date().getTimezoneOffset()/60)}`,leak:true},
+    {key:'Locale',val:navigator.language,leak:true},
+    {key:'Languages',val:navigator.languages?.join(', ')||navigator.language,leak:true},
+    {key:'Date Format',val:new Intl.DateTimeFormat(navigator.language,{dateStyle:'full'}).format(new Date()),leak:true},
+  ]});
+  score -= 10;
+
+  // Hardware
+  leaks.push({cat:'Hardware',items:[
+    {key:'CPU Cores',val:navigator.hardwareConcurrency||'N/A',leak:!!navigator.hardwareConcurrency},
+    {key:'Memory',val:navigator.deviceMemory?navigator.deviceMemory+'GB':'N/A',leak:!!navigator.deviceMemory},
+    {key:'Platform',val:navigator.platform||'N/A',leak:true},
+    {key:'Max Touch Points',val:navigator.maxTouchPoints,leak:navigator.maxTouchPoints>0},
+    {key:'Connection',val:navigator.connection?`${navigator.connection.effectiveType} (${navigator.connection.downlink}Mbps)`:'N/A',leak:!!navigator.connection},
+  ]});
+  score -= 10;
+
+  // Browser
+  leaks.push({cat:'Browser',items:[
+    {key:'User Agent',val:navigator.userAgent.substring(0,80)+'...',leak:true},
+    {key:'Cookies Enabled',val:navigator.cookieEnabled?'Yes':'No',leak:navigator.cookieEnabled},
+    {key:'Do Not Track',val:navigator.doNotTrack||'Not Set',leak:false},
+    {key:'PDF Viewer',val:navigator.pdfViewerEnabled!==undefined?(navigator.pdfViewerEnabled?'Yes':'No'):'Unknown',leak:true},
+    {key:'Languages',val:navigator.languages?.length+' languages',leak:true},
+  ]});
+  score -= 10;
+
+  // Battery
+  try {
+    const bat = await navigator.getBattery();
+    leaks.push({cat:'Battery',items:[
+      {key:'Level',val:Math.round(bat.level*100)+'%',leak:true},
+      {key:'Charging',val:bat.charging?'Yes':'No',leak:true},
+      {key:'Charging Time',val:bat.chargingTime===Infinity?'N/A':Math.round(bat.chargingTime/60)+'min',leak:true},
+      {key:'Discharging Time',val:bat.dischargingTime===Infinity?'N/A':Math.round(bat.dischargingTime/60)+'min',leak:true},
+    ]});
+    score -= 5;
+  } catch(e) {}
+
+  // Storage
+  leaks.push({cat:'Storage & APIs',items:[
+    {key:'localStorage',val:typeof localStorage!=='undefined'?'Available':'Blocked',leak:typeof localStorage!=='undefined'},
+    {key:'sessionStorage',val:typeof sessionStorage!=='undefined'?'Available':'Blocked',leak:typeof sessionStorage!=='undefined'},
+    {key:'IndexedDB',val:typeof indexedDB!=='undefined'?'Available':'Blocked',leak:typeof indexedDB!=='undefined'},
+    {key:'Service Workers',val:'serviceWorker' in navigator?'Supported':'Not Supported',leak:'serviceWorker' in navigator},
+    {key:'Web Workers',val:typeof Worker!=='undefined'?'Supported':'Not Supported',leak:true},
+  ]});
+
+  // Permissions
+  const perms = [];
+  for (const name of ['geolocation','notifications','camera','microphone']) {
+    try {
+      const p = await navigator.permissions.query({name});
+      perms.push({key:name,val:p.state,leak:p.state!=='denied'});
+    } catch(e) {}
+  }
+  if (perms.length) {
+    leaks.push({cat:'Permissions',items:perms});
+    score -= 5;
+  }
+
+  score = Math.max(0, Math.min(100, score));
+
+  // Render
+  results.innerHTML = leaks.map(cat => {
+    const leakCount = cat.items.filter(i=>i.leak).length;
+    const total = cat.items.length;
+    const badge = leakCount===0?'safe':leakCount>total/2?'danger':'warn';
+    const badgeText = leakCount===0?'Clean':leakCount===total?'All Leaked':`${leakCount}/${total} Leaked`;
+    return `<div class="cat"><div class="cat-header"><h2>${cat.cat}</h2><span class="badge ${badge}">${badgeText}</span></div><div class="cat-items">${cat.items.map(i=>`<div class="item"><span class="key">${i.key}</span><span class="val ${i.leak?'leak':'ok'}">${i.val}</span></div>`).join('')}</div></div>`;
+  }).join('');
+
+  // Score animation
+  const offset = 440 - (score / 100 * 440);
+  $('scoreCircle').style.strokeDashoffset = offset;
+  if (score < 40) $('scoreCircle').style.stroke = '#ef4444';
+  else if (score < 70) $('scoreCircle').style.stroke = '#f59e0b';
+  else $('scoreCircle').style.stroke = '#22c55e';
+  $('scoreVal').textContent = score;
+  $('scoreLabel').textContent = score>=70?'Low uniqueness (good)':score>=40?'Moderate uniqueness':'High uniqueness (easy to track)';
+
+  // Share
+  $('shareBtn').addEventListener('click', e => {
+    e.preventDefault();
+    const text = `🔒 LeakScope Privacy Score: ${score}/100\n\n${score>=70?'My browser has low uniqueness — harder to track.':score>=40?'My browser is moderately unique.':'My browser is highly unique — easy to track!'}\n\nCheck yours: https://leakscope.surge.sh`;
+    navigator.clipboard.writeText(text).then(() => alert('Score card copied!')).catch(() => {});
+  });
+}
+
+detect();
+})();
+</script>
+</body>
+</html>
